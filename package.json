@@ -1,0 +1,27 @@
+{
+  "name": "yad2-proj-back",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": ".\\node_modules\\.bin\\env-cmd -f .\\config\\.env.dev nodemon .\\server\\index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "^2.952.0",
+    "axios": "^0.21.1",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^10.0.0",
+    "express": "^4.17.1",
+    "jsonwebtoken": "^8.5.1",
+    "mssql": "^7.2.0",
+    "multer": "^1.4.2"
+  },
+  "devDependencies": {
+    "env-cmd": "^10.1.0",
+    "nodemon": "^2.0.7"
+  }
+}
