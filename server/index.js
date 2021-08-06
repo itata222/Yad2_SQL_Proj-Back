@@ -3,9 +3,9 @@ const cors = require('cors')
 
 const app = express();
 const port = process.env.PORT
-const userRouter = require('./routers/userRouter')
-require('./db/db')
-
+const userRouter = require('./routers/userRouter');
+const {sql, sqlConfig}=require('./db/db');
+sql.connect(sqlConfig);
 app.use(cors());
 app.use(express.json())
 app.use(userRouter)
