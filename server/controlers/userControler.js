@@ -11,7 +11,7 @@ const generateAuthToken=require('../utils/generateToken');
 
 
 exports.createUser = async (req, res) => {
-    const query=`insert into tblUsers output inserted.userID values('${req.body.email}','${req.body.password}')`;
+    const query=`EXEC create_user @email = '${req.body.email}', @password = '${req.body.password}';`;
     let returnObj={};
     try {
         const reqSql= new sql.Request();
@@ -39,7 +39,7 @@ exports.createUser = async (req, res) => {
 
 exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
-    const query=`select * from tblUsers where email='${email}' AND password='${password}'`;
+    const query=`EXEC login_user @email = '${email}', @password = '${password}';`;
     let returnObj={};
     try {
         const reqSql= new sql.Request();
@@ -47,6 +47,12 @@ exports.loginUser = async (req, res) => {
             if(err){
                 console.log('err',err.originalError.message)
                 return;
+            }
+            if(recordset.recordset.length===0){
+                return res.status(400).send({
+                    status:400,
+                    message:'Email Or Password not Match'
+                })
             }
             returnObj.user={
                 userID:Object.values(recordset.recordset[0])[0],
@@ -68,7 +74,7 @@ exports.logout = async (req, res) => {
     const user = req.user;
     try {
         const reqSql=new sql.Request();
-        reqSql.query(`DELETE FROM tblTokens WHERE token='${user.token}';`,(err,recordset)=>{
+        reqSql.query(`EXEC logout_user @token=${user.token}`,(err,recordset)=>{
             if(err){
                 console.log('err2',err.originalError.message)
                 return;
@@ -92,15 +98,13 @@ exports.updateInfo = async (req, res) => {
         if (req.body && (!newPassword && !newEmail))
             throw new Error('You can only edit your password or email')
         const reqSql=new sql.Request();
-         reqSql.query(`select * from tblUsers where userID=${_id}`,(err,record)=>{
+         reqSql.query(`EXEC get_user_by_id @id=${_id}`,(err,record)=>{
             if(err){
                 console.log('err2',err.originalError.message)
                 return;
             }
             userObj=record.recordset[0]
-            console.log(newPassword,newEmail)
-            console.log('12321',userObj)
-            reqSql.query(`UPDATE tblUsers SET password = '${newPassword||userObj.password}',Email='${newEmail||userObj.email}'OUTPUT inserted.* WHERE userID = ${_id};`,(err,recordset)=>{
+            reqSql.query(`EXEC update_user @id=${_id} ,email=${newEmail||userObj.email},password=${newPassword||userObj.password}`,(err,recordset)=>{
                 if(err){
                     console.log('err3',err.originalError.message)
                     return;
@@ -130,25 +134,18 @@ exports.addPost=async (req, res) => {
     const postProperties=req.body;
     try {
         const reqSql=new sql.Request();
-        const query=`insert into tblPosts (
-            userID,propType,condition,city,street,houseNumber,floor,floorsInBuilding,onBars,
-            neighborhood,area,rooms,parking,balcony,airCondition,mamad,warehouse,pandor,
-            furnished,accessible,elevator,tadiran,remaked,kasher,sunEnergy,bars,video,
-            description,buildMr,totalMr,price,entryDate,immidiate,contactName,contactPhone,contactEmail
-          ) OUTPUT inserted.* values (
-            ${userID},'${postProperties.propType}','${postProperties.condition}',
-            '${postProperties.city}','${postProperties.street}',${postProperties.houseNumber},
-            ${postProperties.floor},${postProperties.floorsInBuilding},${postProperties.onBars},
-            '${postProperties.neighborhood}','${postProperties.area}',${postProperties.rooms},
-            ${postProperties.parking},${postProperties.balcony},${postProperties.airCondition},
-            ${postProperties.mamad},${postProperties.warehouse},${postProperties.pandor},
-            ${postProperties.furnished},${postProperties.accessible},${postProperties.elevator},
-            ${postProperties.tadiran},${postProperties.remaked},${postProperties.kasher},
-            ${postProperties.sunEnergy},${postProperties.bars},'${postProperties.video}',
-            '${postProperties.description}',${postProperties.buildMr},${postProperties.totalMr},
-            ${postProperties.price},'${postProperties.entryDate}',${postProperties.immidiate},
-            '${postProperties.contactName}','${postProperties.contactPhone}','${postProperties.contactEmail}'
-        )`;
+        const query=`EXEC add_post @userID=${userID},@propType=${postProperties.propType},@condition=${postProperties.condition},
+        @city=${postProperties.city},@street=${postProperties.street},@houseNumber=${postProperties.houseNumber},
+        @floor=${postProperties.floor},@floorsInBuilding=${postProperties.floorsInBuilding},@onBars=${postProperties.onBars},
+        @neighborhood=${postProperties.neighborhood},@area=${postProperties.area},@rooms=${postProperties.rooms},
+        @parking=${postProperties.parking},@balcony=${postProperties.balcony},@airCondition=${postProperties.airCondition},
+        @mamad=${postProperties.mamad},@warehouse=${postProperties.warehouse},@pandor=${postProperties.pandor},
+        @furnished=${postProperties.furnished},@accessible=${postProperties.accessible},@elevator=${postProperties.elevator},
+        @tadiran=${postProperties.tadiran},@remaked=${postProperties.remaked},@kasher=${postProperties.kasher},
+        @sunEnergy=${postProperties.sunEnergy},@bars=${postProperties.bars},@video=${postProperties.video},
+        @description=${postProperties.description},@buildMr=${postProperties.buildMr},@totalMr=${postProperties.totalMr},
+        @price=${postProperties.price},@entryDate=${postProperties.entryDate},@immidiate=${postProperties.immidiate},
+        @contactName=${postProperties.contactName},@contactPhone=${postProperties.contactPhone},@contactEmail=${postProperties.contactEmail}`;
         reqSql.query(query,(err,records)=>{
             if(err){
                 console.log('err6',err.originalError.message)
@@ -183,7 +180,7 @@ exports.getPosts=async (req, res) => {
         const cityText=!!query?.city?`${query.city}`:textBy;
         const streetText=!!query?.street?`${query.street}`:cityText;
         const onlyWithImage=query?.withImage===true;
-        const roomsRange=    (!!query.roomsTo||query.roomsTo===0)?
+        const roomsRange= (!!query.roomsTo||query.roomsTo===0)?
         `rooms>=${ query.roomsFrom||0} AND rooms<=${query.roomsTo}`:
         `rooms>=${ query.roomsFrom||0}`
         const priceRange=query?.toPrice?
@@ -198,8 +195,8 @@ exports.getPosts=async (req, res) => {
         let propSqlQuery=``;
         queryFilteredOnlyToBooleans.map((prop,i)=>{
             i===queryFilteredOnlyToBooleans.length-1?
-            propSqlQuery=propSqlQuery.concat(`${prop[0]} = 1`):
-            propSqlQuery=propSqlQuery.concat(`${prop[0]} = 1 AND `)
+            propSqlQuery=propSqlQuery.concat(prop[1]===true?`${prop[0]}=1`:`${prop[0]}=0`):
+            propSqlQuery=propSqlQuery.concat(prop[1]===true?`${prop[0]}=1 AND `:`${prop[0]}=0 AND `)
         })
         if(query.types.length>0){
             const typesArr=Array.from(query.types);
@@ -224,16 +221,14 @@ exports.getPosts=async (req, res) => {
                         AND ${priceRange} AND (city like '%${cityText}%' OR street like '%${streetText}%')
                         AND floor>${query.floorsFrom||0} AND floor<=${query.floorsTo||20} ${propSqlQuery.length>0?`AND ${propSqlQuery}`:""}
                         AND ${entryDate} AND description like '%${query.freeText?query.freeText:''}%'
-                        ORDER BY ${sortBy||'creationDate'} DESC`
-        console.log(querySql)
+                        ORDER BY ${!sortBy?'creationDate DESC':sortBy==='-price'?'price DESC':'price ASC'}`
         const reqSql=new sql.Request();
         reqSql.query(querySql,(err,records)=>{
             if(err){
-                console.log('err1',err.originalError.message)
+                console.log('err1',err.originalError?.message)
                 return;
             }
             const allPostsThatMeetsTheQuery=records.recordset;
-            console.log(allPostsThatMeetsTheQuery.length)
             let skip=0;
             if(query.fromPrice===1||query.withImage===true){
                 skip=skip>0?currentLength:(page-1)*limit;
@@ -246,18 +241,17 @@ exports.getPosts=async (req, res) => {
                     SELECT ROW_NUMBER() OVER(ORDER BY ${sortBy||'creationDate'} DESC) AS RoNum, *
                     FROM tblPosts
             ) AS tbl 
-            WHERE @N < RoNum AND ${roomsRange} AND ${totalMrRange} AND (${types})
+            WHERE @N < RoNum AND ${roomsRange} AND ${totalMrRange} AND (${types}) 
             AND ${priceRange} AND (city like '%${cityText}%' OR street like '%${streetText}%')
-            AND floor>${query.floorsFrom||0} AND floor<=${query.floorsTo||20} AND
-            ${entryDate} AND description like '%${query.freeText?query.freeText:''}%' ${propSqlQuery}
-            ORDER BY ${sortBy||'creationDate'} DESC
-            `
+            AND floor>${query.floorsFrom||0} AND floor<=${query.floorsTo||20} ${propSqlQuery.length>0?`AND ${propSqlQuery}`:""}
+            AND ${entryDate} AND description like '%${query.freeText?query.freeText:''}%'
+            ORDER BY ${!sortBy?'creationDate DESC':sortBy==='-price'?'price DESC':'price ASC'}`
             reqSql.query(querySqlExtended,(err,recordset)=>{
                 if(err){
-                    console.log('err12',err.originalError.message)
+                    console.log('err12',err.originalError?.message)
                     return;
                 }
-                const posts=recordset.recordset;
+                let posts=recordset.recordset;
                 if(posts.length>0&&posts[posts.length-1].postID===allPostsThatMeetsTheQuery[allPostsThatMeetsTheQuery.length-1].postID){
                     hasMore=false;
                 }
@@ -269,7 +263,7 @@ exports.getPosts=async (req, res) => {
                             JOIN tblPosts 
                             ON tblPosts.postID=tblPhotos.postID`,(err,records)=>{
                                 if(err){
-                                    console.log('err',err.originalError.message)
+                                    console.log('err',err.originalError?.message)
                                     return;
                                 }
                                 const photos=records.recordset;
@@ -279,10 +273,11 @@ exports.getPosts=async (req, res) => {
                                         if (posts[i].postID === photos[j].postID)
                                             posts[i].photos.push(photos[j]);
                                     }
-                                    if(onlyWithImage&&posts[i].photos.length===0)
-                                        posts.splice(i,1)
+                                    if(onlyWithImage&&posts[i].photos.length===0){
+                                        posts.splice(i,1);
+                                        i--;
+                                    }
                                 }
-                                console.log(posts.length,cityText,streetText)
                                 res.send({posts,hasMore})
                             })
                 
