@@ -8,6 +8,7 @@ const unlinkFile=util.promisify(fs.unlink);
 const portUrl=`http://localhost:${process.env.PORT}`;
 
 const generateAuthToken=require('../utils/generateToken');
+const { optionalStr, getParamStrFromArr, getAppartmentPropertiesFromObject } = require('../utils/getPostsUtils');
 
 
 exports.createUser = async (req, res) => {
@@ -74,7 +75,7 @@ exports.logout = async (req, res) => {
     const user = req.user;
     try {
         const reqSql=new sql.Request();
-        reqSql.query(`EXEC logout_user @token=${user.token}`,(err,recordset)=>{
+        reqSql.query(`EXEC logout_user @token='${user.token}'`,(err,recordset)=>{
             if(err){
                 console.log('err2',err.originalError.message)
                 return;
@@ -104,7 +105,7 @@ exports.updateInfo = async (req, res) => {
                 return;
             }
             userObj=record.recordset[0]
-            reqSql.query(`EXEC update_user @id=${_id} ,email=${newEmail||userObj.email},password=${newPassword||userObj.password}`,(err,recordset)=>{
+            reqSql.query(`EXEC update_user @id=${_id} ,email='${newEmail||userObj.email}',password='${newPassword||userObj.password}'`,(err,recordset)=>{
                 if(err){
                     console.log('err3',err.originalError.message)
                     return;
@@ -134,18 +135,18 @@ exports.addPost=async (req, res) => {
     const postProperties=req.body;
     try {
         const reqSql=new sql.Request();
-        const query=`EXEC add_post @userID=${userID},@propType=${postProperties.propType},@condition=${postProperties.condition},
-        @city=${postProperties.city},@street=${postProperties.street},@houseNumber=${postProperties.houseNumber},
+        const query=`EXEC add_post @userID=${userID},@propType='${postProperties.propType}',@condition='${postProperties.condition}',
+        @city='${postProperties.city}',@street='${postProperties.street}',@houseNumber=${postProperties.houseNumber},
         @floor=${postProperties.floor},@floorsInBuilding=${postProperties.floorsInBuilding},@onBars=${postProperties.onBars},
-        @neighborhood=${postProperties.neighborhood},@area=${postProperties.area},@rooms=${postProperties.rooms},
+        @neighborhood='${postProperties.neighborhood}',@area='${postProperties.area}',@rooms=${postProperties.rooms},
         @parking=${postProperties.parking},@balcony=${postProperties.balcony},@airCondition=${postProperties.airCondition},
         @mamad=${postProperties.mamad},@warehouse=${postProperties.warehouse},@pandor=${postProperties.pandor},
         @furnished=${postProperties.furnished},@accessible=${postProperties.accessible},@elevator=${postProperties.elevator},
         @tadiran=${postProperties.tadiran},@remaked=${postProperties.remaked},@kasher=${postProperties.kasher},
-        @sunEnergy=${postProperties.sunEnergy},@bars=${postProperties.bars},@video=${postProperties.video},
-        @description=${postProperties.description},@buildMr=${postProperties.buildMr},@totalMr=${postProperties.totalMr},
-        @price=${postProperties.price},@entryDate=${postProperties.entryDate},@immidiate=${postProperties.immidiate},
-        @contactName=${postProperties.contactName},@contactPhone=${postProperties.contactPhone},@contactEmail=${postProperties.contactEmail}`;
+        @sunEnergy=${postProperties.sunEnergy},@bars=${postProperties.bars},@video='${postProperties.video}',
+        @description='${postProperties.description}',@buildMr=${postProperties.buildMr},@totalMr=${postProperties.totalMr},
+        @price=${postProperties.price},@entryDate='${postProperties.entryDate}',@immidiate=${postProperties.immidiate},
+        @contactName='${postProperties.contactName}',@contactPhone='${postProperties.contactPhone}',@contactEmail='${postProperties.contactEmail}'`;
         reqSql.query(query,(err,records)=>{
             if(err){
                 console.log('err6',err.originalError.message)
@@ -173,55 +174,24 @@ exports.getPosts=async (req, res) => {
     const page=parseInt(req.query.page);
     const query=JSON.parse(req.query.queryObj);
     const currentLength=req.query.postsCurrentLength?parseInt(req.query.postsCurrentLength):0
-    let hasMore=true;
+    let hasMore=true,skip=(page-1)*limit;
     try {
-        const sortBy=query.sort?`${query?.sort}`:undefined;
         const textBy=query.text?`${query.text}`:'';
-        const cityText=!!query?.city?`${query.city}`:textBy;
-        const streetText=!!query?.street?`${query.street}`:cityText;
-        const onlyWithImage=query?.withImage===true;
-        const roomsRange= (!!query.roomsTo||query.roomsTo===0)?
-        `rooms>=${ query.roomsFrom||0} AND rooms<=${query.roomsTo}`:
-        `rooms>=${ query.roomsFrom||0}`
-        const priceRange=query?.toPrice?
-        `price>=${query.fromPrice||-1} AND price<=${ query.toPrice}`:
-        `price>=${query.fromPrice||-1}`;
-        const totalMrRange=query?.sizeTo?
-        `totalMr>${query.sizeFrom||0} AND totalMr<=${query?.sizeTo||0}`:
-        `totalMr>${query.sizeFrom||0}`;
-        let types='',entryDate;
-        const queryAsArray = Object.entries(query);
-        const queryFilteredOnlyToBooleans = queryAsArray.filter(([key, value]) => typeof value=='boolean'&&key!=='withImage'&&key!=='immidiate');
-        let propSqlQuery=``;
-        queryFilteredOnlyToBooleans.map((prop,i)=>{
-            i===queryFilteredOnlyToBooleans.length-1?
-            propSqlQuery=propSqlQuery.concat(prop[1]===true?`${prop[0]}=1`:`${prop[0]}=0`):
-            propSqlQuery=propSqlQuery.concat(prop[1]===true?`${prop[0]}=1 AND `:`${prop[0]}=0 AND `)
-        })
-        if(query.types.length>0){
-            const typesArr=Array.from(query.types);
-            const finalTypes=[];
-            for(let i=0;i<typesArr.length;i++)
-                finalTypes.push("'"+typesArr[i].trim().replace("'","")+"'")
-            types=`propType IN (${[...finalTypes]})`
-        }
-        else
-            types=`propType like '%%'`
-       if(!!query.entryDate)
-            entryDate= `entryDate>Convert(datetime, ${query.entryDate})` 
-        else if(query.immidiate===true)
-            entryDate=`entryDate<GETDATE()`
-        else{
-            const oneYearAgo=new Date();
-            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-            const finalDate=moment(oneYearAgo).format('YYYY-MM-DD');
-            entryDate = `entryDate>Convert(datetime, ${finalDate})` 
-        }
-        const querySql=`Select * from tblPosts WHERE ${roomsRange} AND ${totalMrRange} AND (${types})
-                        AND ${priceRange} AND (city like '%${cityText}%' OR street like '%${streetText}%')
-                        AND floor>${query.floorsFrom||0} AND floor<=${query.floorsTo||20} ${propSqlQuery.length>0?`AND ${propSqlQuery}`:""}
-                        AND ${entryDate} AND description like '%${query.freeText?query.freeText:''}%'
-                        ORDER BY ${!sortBy?'creationDate DESC':sortBy==='-price'?'price DESC':'price ASC'}`
+        const cityText=!!query.city?`${query.city}`:textBy;
+        const streetText=!!query.street?`${query.street}`:cityText;
+        const onlyWithImage=query.withImage===true;
+        const typesString= getParamStrFromArr(query.types);
+        const propertiesStr = getAppartmentPropertiesFromObject(query);
+
+        const querySql=`
+        EXEC sp_get_all_posts 
+        @roomsFrom=${optionalStr(query.roomsFrom)}, @roomsTo=${optionalStr(query.roomsTo)},
+        @totalMrFrom=${optionalStr(query.sizeFrom)}, @totalMrTo=${optionalStr(query.sizeTo)},
+        @priceFrom=${optionalStr(query.fromPrice)}, @priceTo=${optionalStr(query.toPrice)},
+        @cityText=${optionalStr(cityText)}, @streetText=${optionalStr(streetText)},
+        @floorsFrom=${optionalStr(query.floorsFrom)}, @floorsTo=${optionalStr(query.floorsTo)},
+        @entryDate=${optionalStr(query.entryDate)}, @freeText=${optionalStr(query.freeText)},
+        @sortBy=${optionalStr(query.sort)}, @types=${optionalStr(typesString)}, @properties=${optionalStr(propertiesStr)}`;
         const reqSql=new sql.Request();
         reqSql.query(querySql,(err,records)=>{
             if(err){
@@ -229,34 +199,30 @@ exports.getPosts=async (req, res) => {
                 return;
             }
             const allPostsThatMeetsTheQuery=records.recordset;
-            let skip=0;
-            if(query.fromPrice===1||query.withImage===true){
+            if(query.fromPrice===1||query.withImage===true)
                 skip=skip>0?currentLength:(page-1)*limit;
-            }
             if(query.fromPrice===-1||query.withImage===false&&skip>0)
                 skip=(page-1)*limit;
+
             const querySqlExtended=`
-            DECLARE @N INT = ${skip}
-            SELECT TOP 5 * FROM (
-                    SELECT ROW_NUMBER() OVER(ORDER BY ${sortBy||'creationDate'} DESC) AS RoNum, *
-                    FROM tblPosts
-            ) AS tbl 
-            WHERE @N < RoNum AND ${roomsRange} AND ${totalMrRange} AND (${types}) 
-            AND ${priceRange} AND (city like '%${cityText}%' OR street like '%${streetText}%')
-            AND floor>${query.floorsFrom||0} AND floor<=${query.floorsTo||20} ${propSqlQuery.length>0?`AND ${propSqlQuery}`:""}
-            AND ${entryDate} AND description like '%${query.freeText?query.freeText:''}%'
-            ORDER BY ${!sortBy?'creationDate DESC':sortBy==='-price'?'price DESC':'price ASC'}`
+            EXEC sp_get_top_5_posts 
+            @skip = ${optionalStr(skip)} ,@roomsFrom=${optionalStr(query.roomsFrom)}, @roomsTo=${optionalStr(query.roomsTo)},
+            @totalMrFrom=${optionalStr(query.sizeFrom)}, @totalMrTo=${optionalStr(query.sizeTo)},
+            @priceFrom=${optionalStr(query.fromPrice)}, @priceTo=${optionalStr(query.toPrice)},
+            @cityText=${optionalStr(cityText)}, @streetText=${optionalStr(streetText)},
+            @floorsFrom=${optionalStr(query.floorsFrom)}, @floorsTo=${optionalStr(query.floorsTo)},
+            @entryDate=${optionalStr(query.entryDate)}, @freeText=${optionalStr(query.freeText)},
+            @sortBy=${optionalStr(query.sort)}, @limit=${optionalStr(limit)},
+            @types=${optionalStr(typesString)},@properties=${optionalStr(propertiesStr)}`
+            
             reqSql.query(querySqlExtended,(err,recordset)=>{
                 if(err){
                     console.log('err12',err.originalError?.message)
                     return;
                 }
                 let posts=recordset.recordset;
-                if(posts.length>0&&posts[posts.length-1].postID===allPostsThatMeetsTheQuery[allPostsThatMeetsTheQuery.length-1].postID){
+                if((posts.length>0&&posts[posts.length-1].postID===allPostsThatMeetsTheQuery[allPostsThatMeetsTheQuery.length-1].postID)||posts.length===0)
                     hasMore=false;
-                }
-                if(posts.length===0)
-                    hasMore=false
 
                 reqSql.query(`SELECT tblPosts.postID ,tblPhotos.photo
                             FROM tblPhotos
@@ -278,6 +244,9 @@ exports.getPosts=async (req, res) => {
                                         i--;
                                     }
                                 }
+                                if(posts.length<5)
+                                    hasMore=false
+                                // console.log(posts.length,hasMore)
                                 res.send({posts,hasMore})
                             })
                 

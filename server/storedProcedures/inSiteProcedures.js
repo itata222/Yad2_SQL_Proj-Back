@@ -36,13 +36,13 @@ function logoutProcedure(){
     const reqSql= new sql.Request();
     const query=`
     CREATE OR ALTER PROCEDURE logout_user
-    @token nvarchar(300) = ''
+    @token nvarchar(200)
     AS
     DELETE FROM tblTokens WHERE token=@token;
     RETURN`;
     reqSql.query(query,async(err,recordset)=>{
         if(err){
-            console.log('err',err.originalError.message)
+            console.log('err2',err.originalError.message)
             return;
         
         }})
@@ -125,27 +125,227 @@ function addPostProcedure(){
 function getAllPostsProcedure(){
     const reqSql= new sql.Request();
     const query=`
-    CREATE OR ALTER PROCEDURE get_all_posts
-    @roomsRange nvarchar(200),@totalMrRange nvarchar(200),@types nvarchar(200),
-    @priceRange nvarchar(200),@cityText nvarchar(50),@streetText nvarchar(50),
-    @floorsFrom int=0,@floorsTo int=20,@propSqlQuery nvarchar(400),
-    @entryDate datetime,@freeText nvarchar(400)='', @sortBy nvarchar(50)
+    CREATE OR ALTER PROCEDURE sp_get_all_posts
+    @roomsFrom FLOAT  = NULL,
+    @roomsTo FLOAT = NULL,
+    @totalMrFrom int = NULL,
+    @totalMrTo int = NULL,
+    @priceFrom FLOAT = NULL, 
+    @priceTo FLOAT = NULL,
+    @cityText nvarchar(50) = NULL,
+    @streetText nvarchar(50) = NULL,
+    @floorsFrom int = NULL,
+    @floorsTo int = NULL,
+    @freeText nvarchar(400) =NULL, 
+    @entryDate datetime = NULL,
+    @sortBy nvarchar(50)=NULL,
+    @propSqlQuery nvarchar(MAX) = NULL,
+    @types nvarchar(MAX) = NULL,
+    @properties nvarchar(MAX) = NULL
     AS
-    Select * from tblPosts WHERE @roomsRange AND @totalMrRange AND (@types)
-                        AND @priceRange AND (city like '%@cityText%' OR street like '%@streetText%')
-                        AND floor>@floorsFrom AND floor<=floorsTo IF LEN(@propSqlQuery)>0  
-                                                                        {'AND @propSqlQuery' }   
-                                                                    ELSE   
-                                                                        { '' } 
-                        AND @entryDate AND description like '%@freeText%'
-                        ORDER BY ${!sortBy?'creationDate DESC':sortBy==='-price'?'price DESC':'price ASC'}
+    DECLARE @Where nvarchar(MAX);
+    SET @Where=' postID > 0 AND'
+    IF (@roomsFrom IS NOT NULL)
+        SET @Where=@Where+' rooms > CONVERT(VARCHAR(12), @roomsFromDyn) AND';
+    IF (@roomsTo IS NOT NULL)
+        SET @Where=@Where+' rooms <= CONVERT(VARCHAR(12), @roomsToDyn) AND';
+    IF (@totalMrFrom IS NOT NULL)
+        SET @Where=@Where+' totalMr > CONVERT(VARCHAR(12), @totalMrFromDyn) AND';
+    IF (@totalMrTo IS NOT NULL)
+        SET @Where=@Where+' totalMr <= CONVERT(VARCHAR(12), @totalMrToDyn) AND';
+    IF (@priceFrom IS NOT NULL)
+        SET @Where= @Where + ' price > CONVERT(VARCHAR(12), @priceFromDyn) AND';
+    IF (@priceTo IS NOT NULL)
+        SET @Where=@Where+' price <= CONVERT(VARCHAR(12), @priceToDyn) AND';
+    IF (@streetText=@cityText)
+        SET @Where=@Where+' CHARINDEX(@cityTextDyn, city) > 0 OR CHARINDEX(@streetTextDyn, street) > 0';
+    ELSE IF (@cityText IS NOT NULL)
+        SET @Where=@Where+' CHARINDEX(@cityTextDyn, city) > 0 AND';
+    ELSE IF (@streetText IS NOT NULL)
+        SET @Where=@Where+' CHARINDEX(@streetTextDyn, street) > 0 AND';
+    IF (@floorsFrom IS NOT NULL)
+        SET @Where=@Where+' floor > CONVERT(VARCHAR(12), @floorsFromDyn) AND';
+    IF (@floorsTo IS NOT NULL)
+        SET @Where=@Where+' floor <= CONVERT(VARCHAR(12), @floorsToDyn) AND';
+    IF (@freeText IS NOT NULL) 
+        SET @Where=@Where+' CHARINDEX(@freeTextDyn, description) > 0 AND';
+    IF (@entryDate IS NOT NULL)
+        SET @Where=@Where+' entryDate <= CONVERT(VARCHAR(50), @entryDateDyn) AND';
+    IF (@types IS NOT NULL)
+        SET @Where=@Where+ ' CHARINDEX(propType,@TypesDyn) > 0 AND';
+    IF (@properties IS NOT NULL AND LEN(@properties)>0)
+        SET @Where=@Where +' '+ @properties
+
+    IF (RIGHT(@Where, 3) = 'AND')
+        SET @Where = SUBSTRING(@Where, 0, LEN(@Where) - 3)   
+    IF (@sortBy IS NULL) 
+        SET @Where= @Where + ' ORDER BY creationDate DESC'
+    IF (@sortBy ='-price') 
+        SET @Where= @Where + ' ORDER BY price DESC'
+    IF (@sortBy = 'price') 
+        SET @Where= @Where + ' ORDER BY price ASC' 
+
+    DECLARE @Command NVARCHAR(MAX)
+    SET @Command = '
+    SELECT * from tblPosts
+    WHERE' + @Where 
+    
+    Execute SP_ExecuteSQL @Command,N'
+    @priceFromDyn FLOAT,
+    @priceToDyn FLOAT,
+    @roomsFromDyn FLOAT,
+    @roomsToDyn FLOAT,
+    @totalMrFromDyn int,
+    @totalMrToDyn int,
+    @cityTextDyn NVARCHAR(50),
+    @streetTextDyn NVARCHAR(50),
+    @freeTextDyn NVARCHAR(400),
+    @entryDateDyn NVARCHAR(50),
+    @floorsFromDyn int,
+    @floorsToDyn int,
+    @TypesDyn NVARCHAR(MAX)',
+
+    @priceFromDyn = @priceFrom,
+    @priceToDyn = @priceTo,
+    @roomsFromDyn = @roomsFrom,
+    @roomsToDyn = @roomsTo,
+    @totalMrFromDyn = @totalMrFrom,
+    @totalMrToDyn = @totalMrTo,
+    @cityTextDyn = @cityText,
+    @streetTextDyn = @streetText,
+    @freeTextDyn = @freeText,
+    @entryDateDyn = @entryDate,
+    @floorsFromDyn=@floorsFrom,
+    @floorsToDyn=@floorsTo,
+    @TypesDyn=@types
     RETURN`;
+    
     reqSql.query(query,async(err,recordset)=>{
         if(err){
-            console.log('err',err.originalError.message)
+            console.log('err',err)
             return;
-        
-        }})
+        }}
+    )
+}
+function getTop5PostsProcedure(){
+    const reqSql= new sql.Request();
+    const query=`
+    CREATE OR ALTER PROCEDURE sp_get_top_5_posts
+    @skip int = NULL,
+    @roomsFrom FLOAT = NULL,
+    @roomsTo FLOAT = NULL,
+    @totalMrFrom int = NULL,
+    @totalMrTo int = NULL,
+    @priceFrom FLOAT = NULL, 
+    @priceTo FLOAT = NULL,
+    @cityText nvarchar(50) =  NULL,
+    @streetText nvarchar(50) = @cityText,
+    @floorsFrom int = NULL,
+    @floorsTo int =  NULL,
+    @freeText nvarchar(400) =  NULL, 
+    @entryDate datetime = NULL,
+    @sortBy nvarchar(50)=NULL,
+    @propSqlQuery nvarchar(400) = NULL,
+    @types nvarchar(MAX) = NULL,
+    @limit int = NULL,
+    @properties NVARCHAR(MAX) = NULL
+    AS
+    DECLARE @Where nvarchar(MAX);
+    SET @Where=' postID > 0 AND'
+
+    IF (@skip IS NULL)
+        SET @skip=0;
+    IF (@limit IS NULL)
+        SET @limit=5;
+    IF (@roomsFrom IS NOT NULL)
+        SET @Where=@Where+' rooms > CONVERT(VARCHAR(12), @roomsFromDyn) AND';
+    IF (@roomsTo IS NOT NULL)
+        SET @Where=@Where+' rooms <= CONVERT(VARCHAR(12), @roomsToDyn) AND';
+    IF (@totalMrFrom IS NOT NULL)
+        SET @Where=@Where+' totalMr > CONVERT(VARCHAR(12), @totalMrFromDyn) AND';
+    IF (@totalMrTo IS NOT NULL)
+        SET @Where=@Where+' totalMr <= CONVERT(VARCHAR(12), @totalMrToDyn) AND';
+    IF (@priceFrom IS NOT NULL)
+        SET @Where=@Where+' price > CONVERT(VARCHAR(12), @priceFromDyn) AND';
+    IF (@priceTo IS NOT NULL)
+        SET @Where=@Where+' price <= CONVERT(VARCHAR(12), @priceToDyn) AND';
+    IF (@streetText=@cityText)
+        SET @Where=@Where+' CHARINDEX(@cityTextDyn, city) > 0 OR CHARINDEX(@streetTextDyn, street) > 0';
+    ELSE IF (@cityText IS NOT NULL)
+        SET @Where=@Where+' CHARINDEX(@cityTextDyn, city) > 0 AND';
+    ELSE IF (@streetText IS NOT NULL)
+        SET @Where=@Where+' CHARINDEX(@streetTextDyn, street) > 0 AND';
+    IF (@floorsFrom IS NOT NULL)
+        SET @Where=@Where+' floor > CONVERT(VARCHAR(12), @floorsFromDyn) AND';
+    IF (@floorsTo IS NOT NULL)
+        SET @Where=@Where+' floor <= CONVERT(VARCHAR(12), @floorsToDyn) AND';
+    IF (@freeText IS NOT NULL) 
+        SET @Where=@Where+' CHARINDEX(@freeTextDyn, description) > 0 AND';
+    IF (@entryDate IS NOT NULL)
+        SET @Where=@Where+' entryDate <= CONVERT(VARCHAR(50), @entryDateDyn) AND';
+    IF (@types IS NOT NULL)
+        SET @Where=@Where+ ' CHARINDEX(propType,@TypesDyn) > 0 AND';
+    IF (@properties IS NOT NULL AND LEN(@properties)>0)
+        SET @Where=@Where +' '+ @properties
+
+    IF (RIGHT(@Where, 3) = 'AND')
+        SET @Where = SUBSTRING(@Where, 0, LEN(@Where) - 3) 
+    IF (@sortBy IS NULL) 
+        SET @Where=@Where+ ' ORDER BY creationDate DESC'
+    ELSE IF (@sortBy ='-price') 
+        SET @Where=@Where+ ' ORDER BY price DESC'
+    ELSE IF (@sortBy = 'price') 
+        SET @Where=@Where+ ' ORDER BY price ASC'
+  
+    
+    DECLARE @Command NVARCHAR(MAX)
+    SET @Command = '
+    SELECT * FROM tblPosts
+    WHERE' + @Where + '
+    OFFSET CONVERT(INT, @skipDyn) ROWS
+    FETCH NEXT CONVERT(INT, @limitDyn) ROWS ONLY'
+
+    Execute SP_ExecuteSQL @Command, N'
+    @priceFromDyn FLOAT,
+    @priceToDyn FLOAT,
+    @roomsFromDyn FLOAT,
+    @roomsToDyn FLOAT,
+    @totalMrFromDyn int,
+    @totalMrToDyn int,
+    @cityTextDyn NVARCHAR(50),
+    @streetTextDyn NVARCHAR(50),
+    @freeTextDyn NVARCHAR(400),
+    @entryDateDyn NVARCHAR(50),
+    @skipDyn int,
+    @limitDyn int,
+    @floorsFromDyn int,
+    @floorsToDyn int,
+    @TypesDyn NVARCHAR(MAX)',
+
+    @priceFromDyn = @priceFrom,
+    @priceToDyn = @priceTo,
+    @roomsFromDyn = @roomsFrom,
+    @roomsToDyn = @roomsTo,
+    @totalMrFromDyn = @totalMrFrom,
+    @totalMrToDyn = @totalMrTo,
+    @cityTextDyn = @cityText,
+    @streetTextDyn = @streetText,
+    @freeTextDyn = @freeText,
+    @entryDateDyn = @entryDate,
+    @skipDyn=@skip,
+    @limitDyn=@limit,
+    @floorsFromDyn=@floorsFrom,
+    @floorsToDyn=@floorsTo,
+    @TypesDyn=@types
+    
+    RETURN`;
+   
+    reqSql.query(query,async(err,recordset)=>{
+        if(err){
+            console.log('err',err.originalError?.message)
+            return;
+        }
+    })
 }
 
 
@@ -156,5 +356,6 @@ module.exports={
     getUserByIDProcedure,
     updateUserProcedure,
     addPostProcedure,
-    getAllPostsProcedure
+    getAllPostsProcedure,
+    getTop5PostsProcedure
 }
