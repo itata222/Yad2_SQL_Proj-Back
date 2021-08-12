@@ -8,7 +8,7 @@ const unlinkFile=util.promisify(fs.unlink);
 const portUrl=`http://localhost:${process.env.PORT}`;
 
 const generateAuthToken=require('../utils/generateToken');
-const { optionalStr, getParamStrFromArr, getAppartmentPropertiesFromObject } = require('../utils/getPostsUtils');
+const { optionalStr, getParamStrFromArr, getAppartmentPropertiesFromObject, getFinalPosts } = require('../utils/getPostsUtils');
 
 
 exports.createUser = async (req, res) => {
@@ -174,7 +174,7 @@ exports.getPosts=async (req, res) => {
     const page=parseInt(req.query.page);
     const query=JSON.parse(req.query.queryObj);
     const currentLength=req.query.postsCurrentLength?parseInt(req.query.postsCurrentLength):0
-    let hasMore=true,skip=(page-1)*limit;
+    let skip=(page-1)*limit;
     try {
         const textBy=query.text?`${query.text}`:'';
         const cityText=!!query.city?`${query.city}`:textBy;
@@ -182,75 +182,39 @@ exports.getPosts=async (req, res) => {
         const onlyWithImage=query.withImage===true;
         const typesString= getParamStrFromArr(query.types);
         const propertiesStr = getAppartmentPropertiesFromObject(query);
+        if(query.fromPrice===1||query.withImage===true)
+            skip=skip>0?currentLength:(page-1)*limit;
 
-        const querySql=`
-        EXEC sp_get_all_posts 
-        @roomsFrom=${optionalStr(query.roomsFrom)}, @roomsTo=${optionalStr(query.roomsTo)},
+        const querySqlExtended=`
+        EXEC sp_get_top_5_posts 
+        @skip = ${optionalStr(skip)} ,@roomsFrom=${optionalStr(query.roomsFrom)}, @roomsTo=${optionalStr(query.roomsTo)},
         @totalMrFrom=${optionalStr(query.sizeFrom)}, @totalMrTo=${optionalStr(query.sizeTo)},
         @priceFrom=${optionalStr(query.fromPrice)}, @priceTo=${optionalStr(query.toPrice)},
         @cityText=${optionalStr(cityText)}, @streetText=${optionalStr(streetText)},
         @floorsFrom=${optionalStr(query.floorsFrom)}, @floorsTo=${optionalStr(query.floorsTo)},
         @entryDate=${optionalStr(query.entryDate)}, @freeText=${optionalStr(query.freeText)},
-        @sortBy=${optionalStr(query.sort)}, @types=${optionalStr(typesString)}, @properties=${optionalStr(propertiesStr)}`;
-        const reqSql=new sql.Request();
-        reqSql.query(querySql,(err,records)=>{
+        @sortBy=${optionalStr(query.sort)}, @limit=${optionalStr(limit)},
+        @types=${optionalStr(typesString)},@properties=${optionalStr(propertiesStr)}`
+        const reqSql= new sql.Request();
+        reqSql.query(querySqlExtended,(err,recordset)=>{
             if(err){
                 console.log('err1',err.originalError?.message)
                 return;
             }
-            const allPostsThatMeetsTheQuery=records.recordset;
-            if(query.fromPrice===1||query.withImage===true)
-                skip=skip>0?currentLength:(page-1)*limit;
-            if(query.fromPrice===-1||query.withImage===false&&skip>0)
-                skip=(page-1)*limit;
-
-            const querySqlExtended=`
-            EXEC sp_get_top_5_posts 
-            @skip = ${optionalStr(skip)} ,@roomsFrom=${optionalStr(query.roomsFrom)}, @roomsTo=${optionalStr(query.roomsTo)},
-            @totalMrFrom=${optionalStr(query.sizeFrom)}, @totalMrTo=${optionalStr(query.sizeTo)},
-            @priceFrom=${optionalStr(query.fromPrice)}, @priceTo=${optionalStr(query.toPrice)},
-            @cityText=${optionalStr(cityText)}, @streetText=${optionalStr(streetText)},
-            @floorsFrom=${optionalStr(query.floorsFrom)}, @floorsTo=${optionalStr(query.floorsTo)},
-            @entryDate=${optionalStr(query.entryDate)}, @freeText=${optionalStr(query.freeText)},
-            @sortBy=${optionalStr(query.sort)}, @limit=${optionalStr(limit)},
-            @types=${optionalStr(typesString)},@properties=${optionalStr(propertiesStr)}`
-            
-            reqSql.query(querySqlExtended,(err,recordset)=>{
+            let posts=recordset.recordset;
+            const querySqlPhotos=`
+            SELECT tblPosts.postID ,tblPhotos.photo
+            FROM tblPhotos
+            JOIN tblPosts 
+            ON tblPosts.postID=tblPhotos.postID`
+            reqSql.query(querySqlPhotos,(err,records)=>{
                 if(err){
-                    console.log('err12',err.originalError?.message)
+                    console.log('err2',err.originalError?.message)
                     return;
                 }
-                let posts=recordset.recordset;
-                if((posts.length>0&&posts[posts.length-1].postID===allPostsThatMeetsTheQuery[allPostsThatMeetsTheQuery.length-1].postID)||posts.length===0)
-                    hasMore=false;
-
-                reqSql.query(`SELECT tblPosts.postID ,tblPhotos.photo
-                            FROM tblPhotos
-                            JOIN tblPosts 
-                            ON tblPosts.postID=tblPhotos.postID`,(err,records)=>{
-                                if(err){
-                                    console.log('err',err.originalError?.message)
-                                    return;
-                                }
-                                const photos=records.recordset;
-                                for (let i = 0; i < posts.length; i++) {
-                                    posts[i].photos = [];
-                                    for (let j = 0; j < photos.length; j++) {
-                                        if (posts[i].postID === photos[j].postID)
-                                            posts[i].photos.push(photos[j]);
-                                    }
-                                    if(onlyWithImage&&posts[i].photos.length===0){
-                                        posts.splice(i,1);
-                                        i--;
-                                    }
-                                }
-                                if(posts.length<5)
-                                    hasMore=false
-                                // console.log(posts.length,hasMore)
-                                res.send({posts,hasMore})
-                            })
-                
-            })
+                const {finalPosts,hasMore}=getFinalPosts(posts,records.recordset,onlyWithImage)
+                res.send({posts:finalPosts,hasMore})
+            }) 
         })
     } catch (e) {
         res.status(500).send(e.message);
